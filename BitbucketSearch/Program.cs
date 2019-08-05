@@ -36,12 +36,21 @@
                                 Convert.ToBase64String(
                                     Encoding.ASCII.GetBytes($"{credential.UserName}:{credential.Password}")));
 
-                            SearchEngine.Run(x, client, log).GetAwaiter().GetResult();
+                            var engine = new SearchEngine(x, client, log);
+
+                            var results = engine.Run().GetAwaiter().GetResult();
+
+                            OutputReport(results, log);
 
                             log.LogInformation("Completed");
                         }
                     }
                 });
+        }
+
+        private static void OutputReport(Results results, ILogger log) 
+        {
+            log.LogInformation($"Processed {results.ProjectCount} projects");
         }
     }
 }
