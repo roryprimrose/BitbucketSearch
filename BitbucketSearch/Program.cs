@@ -51,6 +51,8 @@
         private static void OutputReport(Results results, ILogger log) 
         {
             log.LogInformation($"Processed {results.ProjectCount} projects");
+            log.LogInformation($"Processed {results.RepoCount} repositories");
+            log.LogInformation($"Processed {results.BranchCount} branches");
         }
     }
 }

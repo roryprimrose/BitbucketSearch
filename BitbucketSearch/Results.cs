@@ -4,5 +4,6 @@ namespace BitbucketSearch
     {
         public int ProjectCount {get; set;}
         public int RepoCount {get; set;}
+        public int BranchCount {get; set;}
     }
 }
