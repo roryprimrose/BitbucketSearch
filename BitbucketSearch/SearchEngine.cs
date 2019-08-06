@@ -89,9 +89,8 @@
 
         private async Task<dynamic> ReadJsonData(string uri = "")
         {
-            const int MaxEntries = 10000;
             var baseUri = new Uri(_options.Server, "/rest/api/1.0/projects/");
-            var targetUri = new Uri(baseUri, uri + "?limit=" + MaxEntries);
+            var targetUri = new Uri(baseUri, uri + "?limit=" + _options.PageSize);
 
             _log.LogDebug("Reading from " + targetUri);
 
@@ -108,7 +107,7 @@
 
             dynamic data = JObject.Parse(content);
 
-            if ((int) data.size == MaxEntries)
+            if ((int) data.size == _options.PageSize)
             {
                 _log.LogWarning("The maximum number of items has been returned from " + targetUri
                                                                                       + " and paging is not yet supported");
