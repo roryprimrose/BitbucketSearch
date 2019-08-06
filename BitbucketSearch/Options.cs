@@ -1,7 +1,7 @@
 ﻿namespace BitbucketSearch
 {
-    using CommandLine;
     using System;
+    using CommandLine;
 
     public class Options
     {
@@ -11,10 +11,10 @@
         [Option('f', "filePath", Required = false, HelpText = "The file path to check.")]
         public string FilePath { get; set; }
 
+        public Uri Server => new Uri(ServerUri);
+
         [Option('u', "serverUri", Required = true, HelpText = "URI for the Bitbucket API.")]
         public string ServerUri { get; set; }
-
-        public Uri Server => new Uri(ServerUri);
 
         [Option('v', "verbose", Required = false, HelpText = "Set output to verbose messages.")]
         public bool Verbose { get; set; }

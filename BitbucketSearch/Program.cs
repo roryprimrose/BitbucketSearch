@@ -48,7 +48,7 @@
                 });
         }
 
-        private static void OutputReport(Results results, ILogger log) 
+        private static void OutputReport(Results results, ILogger log)
         {
             log.LogInformation($"Processed {results.ProjectCount} projects");
             log.LogInformation($"Processed {results.RepoCount} repositories");

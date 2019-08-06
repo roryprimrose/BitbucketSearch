@@ -11,15 +11,15 @@
 
     public class SearchEngine
     {
-        private Options _options;
-        private HttpClient _client;
-        private ILogger _log;
+        private readonly HttpClient _client;
+        private readonly ILogger _log;
+        private readonly Options _options;
 
         public SearchEngine(Options options, HttpClient client, ILogger log)
         {
             _options = options;
             _client = client;
-            _log = log;        
+            _log = log;
         }
 
         public async Task<Results> Run()
@@ -27,7 +27,7 @@
             var results = new Results();
 
             // Load the projects
-            dynamic response = await ReadJsonData().ConfigureAwait(false);
+            var response = await ReadJsonData().ConfigureAwait(false);
 
             _log.LogInformation($"Processing {response.size} projects");
 
@@ -42,15 +42,26 @@
             return results;
         }
 
+        private async Task ProcessBranch(dynamic project, dynamic repo, dynamic branch, Results results)
+        {
+            _log.LogInformation($"Processing branch {branch.name} repo {project.name}/{repo.name}");
+
+            // Check how we are searching the branch
+            if (string.IsNullOrWhiteSpace(_options.FilePath) == false)
+            {
+                // Resolve the specific file path
+            }
+        }
+
         private async Task ProcessProject(dynamic project, Results results)
         {
             _log.LogInformation($"Processing project {project.name}");
 
-            var response = await ReadJsonData($"{project.key}/repos/");
+            var response = await ReadJsonData($"{project.key}/repos/").ConfigureAwait(false);
 
             _log.LogInformation($"Processing {response.size} repos in the {project.name} project");
 
-            results.RepoCount += (int)response.size;
+            results.RepoCount += (int) response.size;
 
             IEnumerable<dynamic> repos = response.values;
 
@@ -63,30 +74,17 @@
         {
             _log.LogInformation($"Processing repo {project.name}/{repo.name}");
 
-            var response = await ReadJsonData($"{project.key}/repos/{repo.slug}/branches");
+            var response = await ReadJsonData($"{project.key}/repos/{repo.slug}/branches").ConfigureAwait(false);
 
             _log.LogInformation($"Processing {response.size} branches in the {project.name}/{repo.name} repo");
 
-            results.BranchCount += (int)response.size;
+            results.BranchCount += (int) response.size;
 
             IEnumerable<dynamic> branches = response.values;
 
             var tasks = branches.Select<dynamic, Task>(x => ProcessBranch(project, repo, x, results));
 
             await Task.WhenAll(tasks).ConfigureAwait(false);
-        }
-
-        private async Task ProcessBranch(dynamic project, dynamic repo, dynamic branch, Results results)
-        {
-            _log.LogInformation($"Processing branch {branch.name} repo {project.name}/{repo.name}");
-
-            // Check how we are searching the branch
-            if (string.IsNullOrWhiteSpace(_options.FilePath) == false)
-            {
-                // Resolve the specific file path
-
-            }
-
         }
 
         private async Task<dynamic> ReadJsonData(string uri = "")
@@ -110,9 +108,10 @@
 
             dynamic data = JObject.Parse(content);
 
-            if ((int)data.size == MaxEntries) 
+            if ((int) data.size == MaxEntries)
             {
-                _log.LogWarning("The maximum number of items has been returned from " + targetUri + " and paging is not yet supported");
+                _log.LogWarning("The maximum number of items has been returned from " + targetUri
+                                                                                      + " and paging is not yet supported");
             }
 
             return data;
@@ -120,7 +119,8 @@
 
         private async Task<dynamic> ReadRawData(dynamic project, dynamic repo, dynamic branch, string path)
         {
-            var targetUri = new Uri(_options.Server, $"/rest/api/1.0/projects/{project.key}/repos/{repo.slug}/branches/{branch.id}");
+            var targetUri = new Uri(_options.Server,
+                $"/rest/api/1.0/projects/{project.key}/repos/{repo.slug}/branches/{branch.id}");
 
             _log.LogDebug("Reading from " + targetUri);
 
