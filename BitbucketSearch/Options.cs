@@ -1,11 +1,21 @@
 ﻿namespace BitbucketSearch
 {
     using System;
+    using System.Text.RegularExpressions;
     using CommandLine;
 
     public class Options
     {
-        [Option('m', "fileMatcher", Required = false, HelpText = "The file match regular expression to check.")]
+        [Option('c',
+            "contentMatcher",
+            Required = false,
+            HelpText = "The regular expression to check against file contents.")]
+        public string ContentMatcher { get; set; }
+
+        [Option('m',
+            "fileMatcher",
+            Required = false,
+            HelpText = "The regular expression to check against repo file paths.")]
         public string FileMatcher { get; set; }
 
         [Option('f', "filePath", Required = false, HelpText = "The file path to check.")]
