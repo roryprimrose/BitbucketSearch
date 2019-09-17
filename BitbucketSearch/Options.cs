@@ -25,7 +25,7 @@
                     return null;
                 }
 
-                _contentMatcher = new Regex(ContentsExpression);
+                _contentMatcher = new Regex(ContentsExpression.Trim());
 
                 return _contentMatcher;
             }
@@ -41,7 +41,7 @@
                     return null;
                 }
 
-                _pathMatcher = new Regex(PathExpression);
+                _pathMatcher = new Regex(PathExpression.Trim());
 
                 return _pathMatcher;
             }
@@ -54,7 +54,7 @@
             Default = 10000)]
         public int PageSize { get; set; }
 
-        public Uri Server => new Uri(ServerUri);
+        public Uri Server => new Uri(ServerUri.Trim());
 
         [Option('u', "serverUri", Required = true, HelpText = "URI for the Bitbucket API.")]
         public string ServerUri { get; set; }

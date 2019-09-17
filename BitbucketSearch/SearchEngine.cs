@@ -7,6 +7,7 @@
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
+    using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Extensions.Logging;
     using Newtonsoft.Json.Linq;
@@ -18,6 +19,7 @@
         private readonly ILogger _log;
         private readonly Options _options;
         private const int MaxEntries = 10000;
+        private readonly SemaphoreSlim _mutex = new SemaphoreSlim(50);
 
         public SearchEngine(Options options, Credential credential, ILogger log)
         {
@@ -48,10 +50,10 @@
 
         private Uri BuildFileUri(dynamic project, dynamic repo, dynamic branch, string path, string purpose)
         {
-            var branchId = ((string)branch.id).Replace("/", "%2F");
+            String branchId = GetUriSafeBranchId(branch);
 
             var targetUri = new Uri(_options.Server,
-                $"/projects/{project.key}/repos/{repo.slug}/{purpose}/{path}?at=/{branchId}");
+                $"/projects/{project.key}/repos/{repo.slug}/{purpose}/{path}?at={branchId}");
 
             return targetUri;
         }
@@ -90,11 +92,22 @@
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }
 
+        private string GetUriSafeBranchId(dynamic branch)
+        {
+            var branchId = (string)branch.id;
+
+            return branchId
+                .Replace("/", "%2F")
+                .Replace("#", "%23")
+                .Replace("+", "%2B")
+                .Replace("&", "%26");
+        }
+
         private async Task ProcessBranch(dynamic project, dynamic repo, dynamic branch, Results results)
         {
             _log.LogInformation($"Processing branch {branch.displayId} repo {project.name}/{repo.name}");
 
-            String branchId = ((string)branch.displayId).Replace("/", "%2F");
+            String branchId = GetUriSafeBranchId(branch);
 
             // Get the file paths in the branch
             var response = await ReadJsonData($"{project.key}/repos/{repo.slug}/files?at={branchId}").ConfigureAwait(false);
@@ -170,72 +183,66 @@
 
             var targetUri = new Uri(baseUri, uri);
 
-            _log.LogDebug("Reading from " + targetUri);
+            var content = await ReadResource(targetUri).ConfigureAwait(false);
 
-            using (var client = new HttpClient())
+            dynamic data = JObject.Parse(content);
+
+            if ((int) data.size == _options.PageSize)
             {
-                using (var request = new HttpRequestMessage(HttpMethod.Get, targetUri))
+                _log.LogWarning("The maximum number of items has been returned from " + targetUri + " and paging is not yet supported");
+            }
+
+            return data;
+        }
+
+        private async Task<string> ReadResource(Uri uri)
+        {
+            try
+            {
+                await _mutex.WaitAsync().ConfigureAwait(false);
+                    
+                _log.LogDebug("Reading from " + uri.AbsoluteUri);
+
+                using (var client = new HttpClient())
                 {
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Basic",
-                        Convert.ToBase64String(
-                            Encoding.ASCII.GetBytes($"{_credential.UserName}:{_credential.Password}")));
-
-                    using (var result = await client.SendAsync(request).ConfigureAwait(false))
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
                     {
-                        if (result.StatusCode == HttpStatusCode.NotFound)
+                        request.Headers.Authorization = new AuthenticationHeaderValue("Basic",
+                            Convert.ToBase64String(
+                                Encoding.ASCII.GetBytes($"{_credential.UserName}:{_credential.Password}")));
+
+                        using (var result = await client.SendAsync(request).ConfigureAwait(false))
                         {
-                            return null;
+                            if (result.StatusCode == HttpStatusCode.NotFound)
+                            {
+                                return null;
+                            }
+                            
+                            var content = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                            if (result.StatusCode != HttpStatusCode.OK)
+                            {
+                                _log.LogError("Failed to read from " + uri.AbsoluteUri + Environment.NewLine + Environment.NewLine + content);
+
+                                throw new InvalidOperationException("Failed to read from Bitbucket");
+                            }
+
+                            return content;
                         }
-                        
-                        var content = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-                        if (result.StatusCode != HttpStatusCode.OK)
-                        {
-                            _log.LogError("Failed to read from " + targetUri.AbsoluteUri + Environment.NewLine + Environment.NewLine + content);
-
-                            throw new InvalidOperationException("Failed to read from Bitbucket");
-                        }
-
-                        dynamic data = JObject.Parse(content);
-
-                        if ((int) data.size == _options.PageSize)
-                        {
-                            _log.LogWarning("The maximum number of items has been returned from " + targetUri + " and paging is not yet supported");
-                        }
-
-                        return data;
                     }
                 }
             }
+            finally
+            {
+                _mutex.Release();
+            }
         }
 
-        private async Task<dynamic> ReadRawData(dynamic project, dynamic repo, dynamic branch, string path)
+        private Task<string> ReadRawData(dynamic project, dynamic repo, dynamic branch, string path)
         {
             Uri targetUri = BuildFileUri(project, repo, branch, path, "raw");
 
-            _log.LogDebug("Reading from " + targetUri);
-
-            using (var client = new HttpClient())
-            {
-                var request = new HttpRequestMessage(HttpMethod.Get, targetUri);
-
-                request.Headers.Authorization = new AuthenticationHeaderValue("Basic",
-                    Convert.ToBase64String(
-                        Encoding.ASCII.GetBytes($"{_credential.UserName}:{_credential.Password}")));
-
-                var result = await client.SendAsync(request).ConfigureAwait(false);
-
-                if (result.StatusCode == HttpStatusCode.NotFound)
-                {
-                    return null;
-                }
-
-                var content = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-                dynamic data = JObject.Parse(content);
-
-                return data;
-            }
+            return ReadResource(targetUri);
         }
     }
 }
