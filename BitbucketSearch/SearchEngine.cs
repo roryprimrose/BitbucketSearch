@@ -13,26 +13,15 @@
     public class SearchEngine
     {
         private readonly HttpClient _client;
-        private readonly Regex _contentExpression;
         private readonly ILogger _log;
         private readonly Options _options;
-        private readonly Regex _pathExpression;
+        private const int MaxEntries = 10000;
 
         public SearchEngine(Options options, HttpClient client, ILogger log)
         {
             _options = options;
             _client = client;
             _log = log;
-
-            if (string.IsNullOrWhiteSpace(_options.ContentMatcher) == false)
-            {
-                _contentExpression = new Regex(_options.ContentMatcher);
-            }
-
-            if (string.IsNullOrWhiteSpace(_options.FileMatcher) == false)
-            {
-                _pathExpression = new Regex(_options.FileMatcher);
-            }
         }
 
         public async Task<Results> Run()
@@ -57,84 +46,12 @@
 
         private Uri BuildFileUri(dynamic project, dynamic repo, dynamic branch, string path, string purpose)
         {
+            var branchId = branch.id.Replace("/", "%2F");
+
             var targetUri = new Uri(_options.Server,
-                $"/rest/api/1.0/projects/{project.key}/repos/{repo.slug}/branches/{branch.id}/{purpose}/" + path);
+                $"/projects/{project.key}/repos/{repo.slug}/{purpose}/{path}?at=/{branchId}");
 
             return targetUri;
-        }
-
-        private async Task<bool> CheckFileExists(dynamic project, dynamic repo, dynamic branch, string path)
-        {
-            Uri targetUri = BuildFileUri(project, repo, branch, path, "raw");
-
-            _log.LogDebug("Reading from " + targetUri);
-
-            var request = new HttpRequestMessage(HttpMethod.Head, targetUri);
-
-            var result = await _client.SendAsync(request).ConfigureAwait(false);
-
-            if (result.StatusCode == HttpStatusCode.NotFound)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        private async Task ProcessBranch(dynamic project, dynamic repo, dynamic branch, Results results)
-        {
-            _log.LogInformation($"Processing branch {branch.name} repo {project.name}/{repo.name}");
-
-            // Check how we are searching the branch
-            if (string.IsNullOrWhiteSpace(_options.FilePath) == false)
-            {
-                await ProcessFilePath(project, repo, branch, _options.FilePath, results).ConfigureAwait(false);
-            }
-            else if (_pathExpression != null)
-            {
-                // Find all the paths in the branch that match the expression
-            }
-        }
-
-        private async Task ProcessFilePath(
-            dynamic project,
-            dynamic repo,
-            dynamic branch,
-            string filePath,
-            Results results)
-        {
-            // Determine the browse uri for the specific path on the branch
-            var browseUri = new Uri(_options.Server,
-                $"/rest/api/1.0/projects/{project.key}/repos/{repo.slug}/branches/{branch.id}/browse/" + filePath);
-
-            // Resolve the specific file path
-            if (_contentExpression == null)
-            {
-                // We don't care about the file contents, only if the file exists
-                // Issue a HEAD request against the raw content to resolve whether the file exists
-                var exists = await CheckFileExists(project, repo, branch, filePath).ConfigureAwait(false);
-
-                if (exists)
-                {
-                    results.Matches.Add(browseUri.AbsoluteUri);
-                }
-            }
-            else
-            {
-                // We are checking that the file exists but also that the contents matches the expression
-                var content = await ReadRawData(project, repo, branch, filePath).ConfigureAwait(false);
-
-                if (content == null)
-                {
-                    // The resource doesn't exist
-                    return;
-                }
-
-                if (_contentExpression.IsMatch(content))
-                {
-                    results.Matches.Add(browseUri.AbsoluteUri);
-                }
-            }
         }
 
         private async Task ProcessProject(dynamic project, Results results)
@@ -171,10 +88,80 @@
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }
 
+        private async Task ProcessBranch(dynamic project, dynamic repo, dynamic branch, Results results)
+        {
+            _log.LogInformation($"Processing branch {branch.name} repo {project.name}/{repo.name}");
+
+            String branchId = branch.name.replace("/", "%2F");
+
+            // Get the file paths in the branch
+            var response = await ReadJsonData($"{project.key}/repos/{repo.slug}/files?at={branchId}").ConfigureAwait(false);
+
+            List<string> files = ((IEnumerable<string>)response.values).ToList();
+            List<string> filesToCheck = files;
+
+            // Check how we are searching the branch
+            if (_options.PathMatcher != null)
+            {
+                // Resolve the specific file paths that match the expression
+                filesToCheck = files.Where(x => _options.PathMatcher.IsMatch(x)).ToList();
+            }
+
+            _log.LogInformation($"Checking {filesToCheck.Count} of {files.Count} files in branch {branch.name} repo {project.name}/{repo.name}");
+
+            var tasks = filesToCheck.Select<dynamic, Task>(x => ProcessFile(project, repo, branch, x, results));
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+
+        private async Task ProcessFile(dynamic project, dynamic repo, dynamic branch, string path, Results results) 
+        {
+            if (await IsFileMatch(project, repo, branch, path).ConfigureAwait(false))
+            {
+                // Build a uri for the path
+                Uri targetUri = BuildFileUri(project, repo, branch, path, "browse");
+
+                results.Matches.Add(targetUri.AbsoluteUri);
+            }
+        }
+
+        private async Task<Boolean> IsFileMatch(dynamic project, dynamic repo, dynamic branch, String path) {
+            // We have been asked to check a file that has been found
+            if (_options.ContentMatcher == null) {
+                // The file exists but we don't need to check the contents
+                _log.LogInformation($"Found path match on branch {branch.name} repo {project.name}/{repo.name} for {path}");
+
+                return true;
+            }
+
+            // Download the raw contents of the file and check the contents
+            var contents = await ReadRawData(project, repo, branch, path).ConfigureAwait(false);
+
+            if (_options.ContentMatcher.IsMatch(contents))
+            {
+                _log.LogInformation($"Found contents match on branch {branch.name} repo {project.name}/{repo.name} in {path}");
+
+                return true;
+            }
+
+            return false;
+        }
+
         private async Task<dynamic> ReadJsonData(string uri = "")
         {
             var baseUri = new Uri(_options.Server, "/rest/api/1.0/projects/");
-            var targetUri = new Uri(baseUri, uri + "?limit=" + _options.PageSize);
+
+            // Include the limit query
+            if (uri.IndexOf("?") == -1) 
+            {
+                uri += "?limit=" + MaxEntries;
+            }
+            else
+            {
+                uri += "&limit=" + MaxEntries;
+            }
+
+            var targetUri = new Uri(baseUri, uri);
 
             _log.LogDebug("Reading from " + targetUri);
 
@@ -193,8 +180,7 @@
 
             if ((int) data.size == _options.PageSize)
             {
-                _log.LogWarning("The maximum number of items has been returned from " + targetUri
-                                                                                      + " and paging is not yet supported");
+                _log.LogWarning("The maximum number of items has been returned from " + targetUri + " and paging is not yet supported");
             }
 
             return data;

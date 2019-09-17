@@ -10,7 +10,7 @@
 
     internal class Program
     {
-        private static async Task Main(string[] args)
+        private static void Main(string[] args)
         {
             Parser.Default.ParseArguments<Options>(args)
                 .WithParsed(x =>
@@ -53,6 +53,12 @@
             log.LogInformation($"Processed {results.ProjectCount} projects");
             log.LogInformation($"Processed {results.RepoCount} repositories");
             log.LogInformation($"Processed {results.BranchCount} branches");
+            log.LogInformation($"Found {results.Matches.Count} matches");
+
+            foreach (var match in results.Matches)
+            {
+                log.LogInformation(match);
+            }
         }
     }
 }

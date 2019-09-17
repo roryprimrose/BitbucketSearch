@@ -6,20 +6,46 @@
 
     public class Options
     {
-        [Option('c',
-            "contentMatcher",
-            Required = false,
-            HelpText = "The regular expression to check against file contents.")]
-        public string ContentMatcher { get; set; }
+        private Regex _contentMatcher = null;
+        private Regex _pathMatcher = null;
 
-        [Option('m',
-            "fileMatcher",
-            Required = false,
-            HelpText = "The regular expression to check against repo file paths.")]
-        public string FileMatcher { get; set; }
+        [Option('c', "contentsExpression", Required = false, HelpText = "The regular expression to use against file contents.")]
+        public string ContentsExpression { get; set; }
 
-        [Option('f', "filePath", Required = false, HelpText = "The file path to check.")]
-        public string FilePath { get; set; }
+        [Option('p', "pathExpression", Required = false, HelpText = "The regular expression to use against file paths.")]
+        public string PathExpression { get; set; }
+
+        public Regex ContentMatcher {
+            get {
+                if (_contentMatcher != null) {
+                    return _contentMatcher;
+                }
+
+                if (string.IsNullOrWhiteSpace(ContentsExpression)) {
+                    return null;
+                }
+
+                _contentMatcher = new Regex(ContentsExpression);
+
+                return _contentMatcher;
+            }
+        }
+
+        public Regex PathMatcher {
+            get {
+                if (_pathMatcher != null) {
+                    return _pathMatcher;
+                }
+
+                if (string.IsNullOrWhiteSpace(PathExpression)) {
+                    return null;
+                }
+
+                _pathMatcher = new Regex(PathExpression);
+
+                return _pathMatcher;
+            }
+        }
 
         [Option('s',
             "pageSize",
