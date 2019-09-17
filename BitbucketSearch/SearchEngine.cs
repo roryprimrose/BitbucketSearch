@@ -46,7 +46,7 @@
         {
             _log.LogInformation($"Processing project {project.name}");
 
-            var response = await ReadJsonData($"{project.key}/repos/");
+            var response = await ReadJsonData($"{project.key}/repos/").ConfigureAwait(false);
 
             _log.LogInformation($"Processing {response.size} repos in the {project.name} project");
 
@@ -63,7 +63,7 @@
         {
             _log.LogInformation($"Processing repo {project.name}/{repo.name}");
 
-            var response = await ReadJsonData($"{project.key}/repos/{repo.slug}/branches");
+            var response = await ReadJsonData($"{project.key}/repos/{repo.slug}/branches").ConfigureAwait(false);
 
             _log.LogInformation($"Processing {response.size} branches in the {project.name}/{repo.name} repo");
 
@@ -80,20 +80,78 @@
         {
             _log.LogInformation($"Processing branch {branch.name} repo {project.name}/{repo.name}");
 
-            // Check how we are searching the branch
-            if (string.IsNullOrWhiteSpace(_options.FilePath) == false)
-            {
-                // Resolve the specific file path
+            String branchId = branch.name.replace("/", "%2F");
 
+            // Get the file paths in the branch
+            var response = await ReadJsonData($"{project.key}/repos/{repo.slug}/files?at={branchId}").ConfigureAwait(false);
+
+            List<string> files = ((IEnumerable<string>)response.values).ToList();
+            List<string> filesToCheck = files;
+
+            // Check how we are searching the branch
+            if (_options.PathMatcher != null)
+            {
+                // Resolve the specific file paths that match the expression
+                filesToCheck = files.Where(x => _options.PathMatcher.IsMatch(x)).ToList();
             }
 
+            _log.LogInformation($"Checking {filesToCheck.Count} of {files.Count} files in branch {branch.name} repo {project.name}/{repo.name}");
+
+            var tasks = filesToCheck.Select<dynamic, Task>(x => ProcessFile(project, repo, branch, x, results));
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+
+        private async Task ProcessFile(dynamic project, dynamic repo, dynamic branch, string path, Results results) 
+        {
+            if (await IsFileMatch(project, repo, branch, path).ConfigureAwait(false))
+            {
+                // Build a uri for the path
+                String branchId = branch.name.replace("/", "%2F");
+                var uri = _options.Server + $"/projects/{project.key}/repos/{repo.slug}/browse/{path}?at={branchId}";
+
+                results.Matches.Add(path);
+            }
+        }
+
+        private async Task<Boolean> IsFileMatch(dynamic project, dynamic repo, dynamic branch, String path) {
+            // We have been asked to check a file that has been found
+            if (_options.ContentsMatcher == null) {
+                // The file exists but we don't need to check the contents
+                _log.LogInformation($"Found path match on branch {branch.name} repo {project.name}/{repo.name} for {path}");
+
+                return true;
+            }
+
+            // Download the raw contents of the file and check the contents
+            var contents = await ReadRawData(project, repo, branch, path).ConfigureAwait(false);
+
+            if (_options.ContentsMatcher.IsMatch(contents))
+            {
+                _log.LogInformation($"Found contents match on branch {branch.name} repo {project.name}/{repo.name} in {path}");
+
+                return true;
+            }
+
+            return false;
         }
 
         private async Task<dynamic> ReadJsonData(string uri = "")
         {
             const int MaxEntries = 10000;
             var baseUri = new Uri(_options.Server, "/rest/api/1.0/projects/");
-            var targetUri = new Uri(baseUri, uri + "?limit=" + MaxEntries);
+
+            // Include the limit query
+            if (uri.IndexOf("?") == -1) 
+            {
+                uri += "?limit=" + MaxEntries;
+            }
+            else
+            {
+                uri += "&limit=" + MaxEntries;
+            }
+
+            var targetUri = new Uri(baseUri, uri);
 
             _log.LogDebug("Reading from " + targetUri);
 
