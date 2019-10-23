@@ -19,7 +19,7 @@
         private readonly ILogger _log;
         private readonly Options _options;
         private const int MaxEntries = 10000;
-        private readonly SemaphoreSlim _mutex = new SemaphoreSlim(50);
+        private readonly SemaphoreSlim _mutex = new SemaphoreSlim(40);
 
         public SearchEngine(Options options, Credential credential, ILogger log)
         {
@@ -156,6 +156,10 @@
 
             // Download the raw contents of the file and check the contents
             var contents = await ReadRawData(project, repo, branch, path).ConfigureAwait(false);
+
+            if (contents == null) {
+                return false;
+            }
 
             if (_options.ContentMatcher.IsMatch(contents))
             {

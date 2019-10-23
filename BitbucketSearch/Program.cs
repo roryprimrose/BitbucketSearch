@@ -2,6 +2,7 @@
 {
     using CommandLine;
     using Microsoft.Extensions.Logging;
+    using System.Linq;
 
     internal class Program
     {
@@ -12,8 +13,10 @@
                 {
                     var level = x.Verbose ? LogLevel.Debug : LogLevel.Information;
 
-                    using (var factory = new LoggerFactory().AddConsole(level))
+                    using (var factory = new LoggerFactory())
                     {
+                        factory.AddProvider(new CustomLoggerProvider(level, "{formatter(state, exception)}"));
+
                         var log = factory.CreateLogger<Program>();
 
                         var credential = CredentialResolver.GetCredentials(x);
@@ -43,7 +46,7 @@
             log.LogInformation($"Processed {results.BranchCount} branches");
             log.LogInformation($"Found {results.Matches.Count} matches");
 
-            foreach (var match in results.Matches)
+            foreach (var match in results.Matches.OrderBy(x => x))
             {
                 log.LogInformation(match);
             }
